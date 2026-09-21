@@ -1,0 +1,74 @@
+rules_version = '2';
+// Shared shop: shops/main. Any Google-authenticated user can manage orders/menu.
+// No administrator approval or membership document is required.
+// menu/{id}: name (1..100), priceCents (1..1000000), options (0..8 strings), active (bool).
+// orders/{id}: name (1..100), address (1..300), creatorId/name, lines (1..4),
+// totalCents (integer, exact sum), status, createdAt, deliveredAt.
+// deliveryTimeMinutes: optional null (ASAP) or integer 0..1439, local clock time.
+// Order contents can be edited; original creator and creation time remain immutable.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com';
+    }
+    function text(v, min, max) { return v is string && v.size() >= min && v.size() <= max; }
+    function uidUnchanged(d) { return request.auth.uid == d.creatorId; }
+    function uidNotModified(d) { return d.creatorId == resource.data.creatorId; }
+    function validOptions(v) {
+      let joined = v.join(',');
+      // Round-trip equality proves every element is a string without commas;
+      // the regex bounds every string while avoiding an unrolled expression explosion.
+      return v.size() <= 8 && v.toSet().size() == v.size() &&
+        (v.size() == 0 || (joined.split(',') == v &&
+          joined.matches('^[^,]{1,50}(,[^,]{1,50}){0,7}$')));
+    }
+    function validMenu(d) {
+      return d.keys().hasAll(['name','priceCents','options','active']) &&
+        d.keys().hasOnly(['name','priceCents','options','active']) &&
+        text(d.name, 1, 100) && d.priceCents is int && d.priceCents >= 1 &&
+        d.priceCents <= 1000000 && validOptions(d.options) && d.active is bool;
+    }
+    function validLine(l) {
+      let price = l.priceCents;
+      let qty = l.quantity;
+      return l.keys().hasOnly(['itemId','name','priceCents','quantity','options']) &&
+        text(l.itemId, 1, 128) && text(l.name, 1, 100) &&
+        price is int && price >= 1 && price <= 1000000 &&
+        qty is int && qty >= 1 && qty <= 99 && validOptions(l.options);
+    }
+    function validDeliveryTime(d) {
+      let time = d.get('deliveryTimeMinutes', null);
+      return time == null || (time is int && time >= 0 && time < 1440);
+    }
+    function validOrder(d) {
+      let ls = d.lines;
+      return d.keys().hasOnly(['name','address','creatorId','creatorName','lines','totalCents','status','createdAt','deliveredAt','deliveryTimeMinutes']) &&
+        text(d.name, 1, 100) && text(d.address, 1, 300) && text(d.creatorId, 1, 128) && text(d.creatorName, 0, 200) &&
+        validDeliveryTime(d) &&
+        ls is list && ls.size() >= 1 && ls.size() <= 4 &&
+        (ls.size() <= 0 || validLine(ls[0])) &&
+        (ls.size() <= 1 || validLine(ls[1])) &&
+        (ls.size() <= 2 || validLine(ls[2])) &&
+        (ls.size() <= 3 || validLine(ls[3])) &&
+        d.totalCents is int && d.totalCents == (ls.size() > 0 ? ls[0].priceCents * ls[0].quantity : 0) + (ls.size() > 1 ? ls[1].priceCents * ls[1].quantity : 0) + (ls.size() > 2 ? ls[2].priceCents * ls[2].quantity : 0) + (ls.size() > 3 ? ls[3].priceCents * ls[3].quantity : 0) &&
+        d.createdAt is timestamp && d.status in ['pending','delivered'] &&
+        ((d.status == 'pending' && d.deliveredAt == null) || (d.status == 'delivered' && d.deliveredAt is timestamp));
+    }
+    match /shops/main/menu/{id} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && validMenu(request.resource.data);
+    }
+    match /shops/main/orders/{id} {
+      allow delete: if isAuthenticated();
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && validOrder(request.resource.data) && uidUnchanged(request.resource.data) &&
+        request.resource.data.creatorName == request.auth.token.get('name', '') &&
+        request.resource.data.createdAt == request.time && request.resource.data.status == 'pending';
+      allow update: if isAuthenticated() && validOrder(request.resource.data) && uidNotModified(request.resource.data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','address','lines','totalCents','status','deliveredAt','deliveryTimeMinutes']) &&
+        ((request.resource.data.status == resource.data.status && request.resource.data.deliveredAt == resource.data.deliveredAt) ||
+         (resource.data.status == 'pending' && request.resource.data.status == 'delivered' && request.resource.data.deliveredAt == request.time) ||
+         (resource.data.status == 'delivered' && request.resource.data.status == 'pending' && request.resource.data.deliveredAt == null));
+    }
+  }
+}

@@ -1,0 +1,1 @@
+"""Local Firebase configuration installer."""
