@@ -45,6 +45,14 @@ class SaleDaySummary {
           calendarDate(order.deliveredAt!.toLocal()) == calendarDate(date)) {
         salesCents += order.totalCents;
         orderCount++;
+        for (final line in order.lines) {
+          final previous = _soldItems[line.itemId];
+          _soldItems[line.itemId] = SoldItem(
+            itemId: line.itemId,
+            name: previous?.name ?? line.name,
+            quantity: (previous?.quantity ?? 0) + line.quantity,
+          );
+        }
       }
     }
     expensesCents = expenses.fold(
@@ -52,8 +60,27 @@ class SaleDaySummary {
       (sum, expense) => sum + expense.amountCents,
     );
   }
+  final _soldItems = <String, SoldItem>{};
+  List<SoldItem> get soldItems => _soldItems.values.toList()
+    ..sort((a, b) {
+      final byQuantity = b.quantity.compareTo(a.quantity);
+      return byQuantity != 0 ? byQuantity : a.name.compareTo(b.name);
+    });
+  int get itemCount =>
+      _soldItems.values.fold(0, (sum, item) => sum + item.quantity);
   int salesCents = 0;
   int orderCount = 0;
   late final int expensesCents;
   int get profitCents => salesCents - expensesCents;
+}
+
+class SoldItem {
+  const SoldItem({
+    required this.itemId,
+    required this.name,
+    required this.quantity,
+  });
+  final String itemId;
+  final String name;
+  final int quantity;
 }

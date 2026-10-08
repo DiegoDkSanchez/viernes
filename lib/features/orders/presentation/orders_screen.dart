@@ -92,6 +92,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 : snapshot.data!;
             if (index == 2) {
               return AnalyticsView(
+                watchOrders: widget.services.watchOrders,
                 orders: orders,
                 repository: widget.services.analytics,
               );

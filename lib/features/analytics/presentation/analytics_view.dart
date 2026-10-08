@@ -5,15 +5,18 @@ import '../../../l10n/strings.dart';
 import '../../orders/domain/orders.dart';
 import '../domain/sale_day.dart';
 import 'expenses_screen.dart';
+import 'sold_items_screen.dart';
 
 class AnalyticsView extends StatefulWidget {
   const AnalyticsView({
     super.key,
     required this.orders,
     required this.repository,
+    required this.watchOrders,
   });
   final List<CustomerOrder> orders;
   final AnalyticsRepository repository;
+  final WatchOrders watchOrders;
   @override
   State<AnalyticsView> createState() => _AnalyticsViewState();
 }
@@ -113,6 +116,7 @@ class _AnalyticsViewState extends State<AnalyticsView> {
                       key: ValueKey(date),
                       date: date,
                       orders: widget.orders,
+                      watchOrders: widget.watchOrders,
                       repository: widget.repository,
                     ),
             ),
@@ -129,10 +133,12 @@ class _DayCards extends StatefulWidget {
     required this.date,
     required this.orders,
     required this.repository,
+    required this.watchOrders,
   });
   final DateTime date;
   final List<CustomerOrder> orders;
   final AnalyticsRepository repository;
+  final WatchOrders watchOrders;
   @override
   State<_DayCards> createState() => _DayCardsState();
 }
@@ -190,6 +196,15 @@ class _DayCardsState extends State<_DayCards> {
             _MetricCard(
               title: s.t('orderCount'),
               value: '${summary.orderCount}',
+              hint: s.t('soldItemsHint'),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SoldItemsScreen(
+                    date: widget.date,
+                    watchOrders: widget.watchOrders,
+                  ),
+                ),
+              ),
               icon: Icons.shopping_bag_outlined,
             ),
             _MetricCard(

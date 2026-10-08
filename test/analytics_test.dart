@@ -27,6 +27,42 @@ CustomerOrder order(
 );
 
 void main() {
+  test('sold items combine variants by ID and retain distinct menu items', () {
+    final date = DateTime(2026, 9, 1);
+    final summary = SaleDaySummary(date, [
+      CustomerOrder(
+        id: 'variants',
+        name: 'Ana',
+        address: 'Address',
+        creator: const AppUser('a', 'Ana'),
+        status: OrderStatus.delivered,
+        deliveredAt: date,
+        lines: [
+          OrderLine(itemId: 'b', name: 'Burger', priceCents: 100, quantity: 2),
+          OrderLine(
+            itemId: 'b',
+            name: 'Burger',
+            priceCents: 100,
+            quantity: 3,
+            options: ['Cheese'],
+          ),
+          OrderLine(
+            itemId: 'other',
+            name: 'Burger',
+            priceCents: 200,
+            quantity: 1,
+          ),
+        ],
+      ),
+      order('other-day', 100, DateTime(2026, 9, 2)),
+      order('pending', 100, date, status: OrderStatus.pending),
+      order('missing-date', 100, null),
+    ], const []);
+    expect(summary.itemCount, 6);
+    expect(summary.soldItems.map((item) => item.itemId), ['b', 'other']);
+    expect(summary.soldItems.map((item) => item.quantity), [5, 1]);
+  });
+
   test(
     'sums cents and quantities by local delivery day, excluding undelivered',
     () {
@@ -68,6 +104,8 @@ void main() {
       );
       expect(summary.salesCents, 606);
       expect(summary.orderCount, 2);
+      expect(summary.itemCount, 4);
+      expect(summary.soldItems.single.quantity, 4);
       expect(summary.profitCents, -94);
       expect(
         () =>
@@ -176,6 +214,28 @@ void main() {
       contains('11,00'),
     );
     expect(find.byType(FloatingActionButton), findsNothing);
+    await tester.tap(find.text('Ver cantidades por producto'));
+    await tester.pumpAndSettle();
+    expect(find.text('Productos vendidos'), findsOneWidget);
+    expect(find.text('Burger'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('soldItemsTotal'))).data,
+      '2',
+    );
+    await orders.create(order('extra', 550, DateTime(2026, 9, 1)));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('soldItemsTotal'))).data,
+      '4',
+    );
+    await orders.delete('extra');
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('soldItemsTotal'))).data,
+      '2',
+    );
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Gastos'));
     await tester.pumpAndSettle();
     expect(find.text('Aún no hay gastos'), findsOneWidget);
@@ -225,6 +285,11 @@ void main() {
       tester.widget<Text>(find.byKey(const ValueKey('analyticsTotal'))).data,
       contains('0,00'),
     );
+    await tester.tap(find.text('Ver cantidades por producto'));
+    await tester.pumpAndSettle();
+    expect(find.text('Aún no hay productos vendidos'), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Pendientes'));
     await tester.pumpAndSettle();
     expect(find.text('Pedidos pendientes'), findsOneWidget);
