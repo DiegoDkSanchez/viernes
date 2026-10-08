@@ -67,3 +67,41 @@ test('delivery clock time supports legacy orders, ASAP and valid minutes on crea
  }
  await assertSucceeds(updateDoc(ref, {deliveryTimeMinutes: null}));
 });
+
+test('sale days are canonical, immutable and shared only with Google users', async () => {
+ const db = auth('alice'), path = root + 'saleDays/2026-9-30';
+ const day = {date: Timestamp.fromDate(new Date('2026-09-30T00:00:00Z'))};
+ await assertSucceeds(setDoc(doc(db, path), day));
+ await assertSucceeds(setDoc(doc(auth('bob'), path), day));
+ await assertSucceeds(getDocs(query(collection(db, root + 'saleDays'), orderBy('date', 'desc'))));
+ for (const data of [{}, {date:'2026-09-30'}, {...day, extra:1}, {date:Timestamp.fromDate(new Date('2026-09-30T01:00:00Z'))}]) {
+  await assertFails(setDoc(doc(db, path), data));
+ }
+ await assertFails(setDoc(doc(db, root + 'saleDays/2026-9-31'), day));
+ await assertFails(updateDoc(doc(db, path), {date:Timestamp.fromDate(new Date('2026-10-01T00:00:00Z'))}));
+ await assertFails(deleteDoc(doc(db, path)));
+ for (const client of [env.unauthenticatedContext().firestore(), env.authenticatedContext('password', {firebase:{sign_in_provider:'password'}}).firestore()]) {
+  await assertFails(getDocs(collection(client, root + 'saleDays')));
+  await assertFails(setDoc(doc(client, path), day));
+  await assertFails(getDocs(collection(client, path + '/expenses')));
+  await assertFails(setDoc(doc(client, path + '/expenses/no'), {name:'Oil',amountCents:100}));
+ }
+});
+
+test('expenses validate creates and updates, reject orphan and foreign paths', async () => {
+ const db = auth('alice'), base = root + 'saleDays/2026-10-1';
+ await setDoc(doc(db, base), {date:Timestamp.fromDate(new Date('2026-10-01T00:00:00Z'))});
+ const data = {name:'Ingredients', amountCents:1500}, ref = doc(db, base + '/expenses/one');
+ await assertSucceeds(setDoc(ref, data));
+ await assertSucceeds(getDocs(collection(auth('bob'), base + '/expenses')));
+ for (const patch of [{name:''}, {name:' '}, {name:7}, {name:'x'.repeat(101)}, {amountCents:-1}, {amountCents:0}, {amountCents:1.5}, {amountCents:1000001}, {amountCents:'100'}, {ownerId:'other'}, {extra:1}]) {
+  await assertFails(setDoc(doc(db, base + '/expenses/bad'), {...data,...patch}));
+  await assertFails(updateDoc(ref, patch));
+ }
+ for (const missing of [{name:'Oil'}, {amountCents:100}, {}]) await assertFails(setDoc(ref, missing));
+ await assertFails(setDoc(doc(db, root + 'saleDays/2001-1-1/expenses/orphan'), data));
+ await assertFails(getDocs(collection(db, root + 'saleDays/2001-1-1/expenses')));
+ await assertFails(setDoc(doc(db, 'shops/other/saleDays/2026-10-1/expenses/no'), data));
+ await assertFails(deleteDoc(doc(env.unauthenticatedContext().firestore(), base + '/expenses/one')));
+ await assertSucceeds(deleteDoc(doc(auth('bob'), base + '/expenses/one')));
+});

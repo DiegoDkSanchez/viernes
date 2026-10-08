@@ -3,137 +3,266 @@ import 'package:intl/intl.dart';
 import '../../../core/widgets.dart';
 import '../../../l10n/strings.dart';
 import '../../orders/domain/orders.dart';
-import '../domain/daily_revenue.dart';
+import '../domain/sale_day.dart';
+import 'expenses_screen.dart';
 
-class AnalyticsView extends StatelessWidget {
-  const AnalyticsView({super.key, required this.orders});
+class AnalyticsView extends StatefulWidget {
+  const AnalyticsView({
+    super.key,
+    required this.orders,
+    required this.repository,
+  });
   final List<CustomerOrder> orders;
+  final AnalyticsRepository repository;
+  @override
+  State<AnalyticsView> createState() => _AnalyticsViewState();
+}
+
+class _AnalyticsViewState extends State<AnalyticsView> {
+  late Stream<List<DateTime>> days = widget.repository.watchDays();
+  DateTime? selected;
+  bool busy = false;
+
+  Future<void> addDate() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: selected ?? now,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100, 12, 31),
+    );
+    if (date == null || !mounted) return;
+    setState(() => busy = true);
+    try {
+      await widget.repository.addDay(date);
+      if (mounted) setState(() => selected = date);
+    } catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = Strings.of(context);
-    final days = dailyRevenue(orders);
-    if (days.isEmpty) {
-      return EmptyState(
-        title: s.t('emptyAnalytics'),
-        subtitle: s.t('analyticsHint'),
-        icon: Icons.bar_chart,
-      );
-    }
-    final dateFormat = DateFormat.yMMMd(s.locale.toLanguageTag());
-    final shortDate = DateFormat.MMMd(s.locale.toLanguageTag());
-    final maximum = days.fold<int>(
-      0,
-      (max, day) => day.totalCents > max ? day.totalCents : max,
-    );
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-      itemCount: days.length + 1,
-      itemBuilder: (context, index) {
-        if (index == 0) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                s.t('dailyRevenue'),
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(s.t('analyticsHint')),
-              const SizedBox(height: 20),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(s.t('deliveredRevenue')),
-                      Text(
-                        s.money(
-                          days.fold<int>(0, (sum, day) => sum + day.totalCents),
-                        ),
-                        key: const ValueKey('analyticsTotal'),
-                        style: Theme.of(context).textTheme.headlineMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(s.t('chartHint')),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        height: 220,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: days.length,
-                          separatorBuilder: (_, _) => const SizedBox(width: 12),
-                          itemBuilder: (context, i) {
-                            final day = days[i];
-                            return Semantics(
-                              label:
-                                  '${dateFormat.format(day.date)}: ${s.money(day.totalCents)}',
-                              child: SizedBox(
-                                width: 100,
-                                child: Column(
-                                  children: [
-                                    SizedBox(
-                                      height: 32,
-                                      child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text(s.money(day.totalCents)),
-                                      ),
-                                    ),
-                                    SizedBox(
-                                      height: 152,
-                                      child: Align(
-                                        alignment: Alignment.bottomCenter,
-                                        child: Container(
-                                          width: 44,
-                                          height: maximum == 0
-                                              ? 0
-                                              : 152 * day.totalCents / maximum,
-                                          decoration: BoxDecoration(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                            borderRadius:
-                                                const BorderRadius.vertical(
-                                                  top: Radius.circular(8),
-                                                ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(shortDate.format(day.date)),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                s.t('byDeliveryDate'),
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 8),
-            ],
+    return StreamBuilder<List<DateTime>>(
+      stream: days,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return ErrorState(
+            error: snapshot.error!,
+            retry: () => setState(() => days = widget.repository.watchDays()),
           );
         }
-        final day = days[index - 1];
-        return Card(
-          child: ListTile(
-            title: Text(dateFormat.format(day.date)),
-            trailing: Text(
-              s.money(day.totalCents),
-              style: Theme.of(context).textTheme.titleMedium,
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final dates = snapshot.data!;
+        final date = dates.contains(selected) ? selected : dates.firstOrNull;
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: dates.isEmpty
+                        ? Text(
+                            s.t('saleDay'),
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          )
+                        : DropdownButtonHideUnderline(
+                            child: DropdownButton<DateTime>(
+                              key: const ValueKey('saleDaySelector'),
+                              isExpanded: true,
+                              value: date,
+                              style: Theme.of(context).textTheme.titleLarge,
+                              items: [
+                                for (final day in dates)
+                                  DropdownMenuItem(
+                                    value: day,
+                                    child: Text(
+                                      DateFormat.yMMMd(
+                                        s.locale.toLanguageTag(),
+                                      ).format(day),
+                                    ),
+                                  ),
+                              ],
+                              onChanged: (value) =>
+                                  setState(() => selected = value),
+                            ),
+                          ),
+                  ),
+                  IconButton.filledTonal(
+                    tooltip: s.t('addDate'),
+                    onPressed: busy ? null : addDate,
+                    icon: const Icon(Icons.edit_calendar_outlined),
+                  ),
+                ],
+              ),
             ),
-          ),
+            Expanded(
+              child: date == null
+                  ? EmptyState(
+                      title: s.t('noSaleDays'),
+                      subtitle: s.t('saleDayHint'),
+                      icon: Icons.event_outlined,
+                    )
+                  : _DayCards(
+                      key: ValueKey(date),
+                      date: date,
+                      orders: widget.orders,
+                      repository: widget.repository,
+                    ),
+            ),
+          ],
         );
       },
     );
   }
+}
+
+class _DayCards extends StatefulWidget {
+  const _DayCards({
+    super.key,
+    required this.date,
+    required this.orders,
+    required this.repository,
+  });
+  final DateTime date;
+  final List<CustomerOrder> orders;
+  final AnalyticsRepository repository;
+  @override
+  State<_DayCards> createState() => _DayCardsState();
+}
+
+class _DayCardsState extends State<_DayCards> {
+  late Stream<List<Expense>> stream = widget.repository.watchExpenses(
+    widget.date,
+  );
+  @override
+  Widget build(BuildContext context) {
+    final s = Strings.of(context);
+    final colors = Theme.of(context).colorScheme;
+    return StreamBuilder<List<Expense>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return ErrorState(
+            error: snapshot.error!,
+            retry: () => setState(
+              () => stream = widget.repository.watchExpenses(widget.date),
+            ),
+          );
+        }
+        if (!snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final summary = SaleDaySummary(
+          widget.date,
+          widget.orders,
+          snapshot.data!,
+        );
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          children: [
+            _MetricCard(
+              title: s.t('expenses'),
+              value: s.money(summary.expensesCents),
+              icon: Icons.receipt_long_outlined,
+              hint: s.t('expenseHint'),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ExpensesScreen(
+                    date: widget.date,
+                    repository: widget.repository,
+                  ),
+                ),
+              ),
+            ),
+            _MetricCard(
+              title: s.t('sales'),
+              value: s.money(summary.salesCents),
+              valueKey: const ValueKey('analyticsTotal'),
+              icon: Icons.payments_outlined,
+            ),
+            _MetricCard(
+              title: s.t('orderCount'),
+              value: '${summary.orderCount}',
+              icon: Icons.shopping_bag_outlined,
+            ),
+            _MetricCard(
+              title: s.t('profits'),
+              value: s.money(summary.profitCents),
+              valueKey: const ValueKey('analyticsProfit'),
+              icon: Icons.account_balance_wallet_outlined,
+              hint: s.t('profitHint'),
+              color: summary.profitCents < 0
+                  ? colors.errorContainer
+                  : colors.primaryContainer,
+            ),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text(
+                s.t('analyticsHint'),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  const _MetricCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    this.hint,
+    this.onTap,
+    this.color,
+    this.valueKey,
+  });
+  final String title, value;
+  final IconData icon;
+  final String? hint;
+  final VoidCallback? onTap;
+  final Color? color;
+  final Key? valueKey;
+  @override
+  Widget build(BuildContext context) => Card(
+    color: color,
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Icon(icon, size: 28),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 6),
+                  Text(
+                    value,
+                    key: valueKey,
+                    style: Theme.of(context).textTheme.headlineMedium,
+                  ),
+                  if (hint != null) ...[const SizedBox(height: 4), Text(hint!)],
+                ],
+              ),
+            ),
+            if (onTap != null) const Icon(Icons.chevron_right),
+          ],
+        ),
+      ),
+    ),
+  );
 }

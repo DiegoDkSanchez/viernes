@@ -6,6 +6,8 @@ rules_version = '2';
 // totalCents (integer, exact sum), status, createdAt, deliveredAt.
 // deliveryTimeMinutes: optional null (ASAP) or integer 0..1439, local clock time.
 // Order contents can be edited; original creator and creation time remain immutable.
+// saleDays/{year-month-day}: date (UTC midnight timestamp, immutable).
+// saleDays/{day}/expenses/{id}: name (1..100), amountCents (integer 1..1000000).
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAuthenticated() {
@@ -53,6 +55,31 @@ service cloud.firestore {
         d.totalCents is int && d.totalCents == (ls.size() > 0 ? ls[0].priceCents * ls[0].quantity : 0) + (ls.size() > 1 ? ls[1].priceCents * ls[1].quantity : 0) + (ls.size() > 2 ? ls[2].priceCents * ls[2].quantity : 0) + (ls.size() > 3 ? ls[3].priceCents * ls[3].quantity : 0) &&
         d.createdAt is timestamp && d.status in ['pending','delivered'] &&
         ((d.status == 'pending' && d.deliveredAt == null) || (d.status == 'delivered' && d.deliveredAt is timestamp));
+    }
+    function validSaleDay(d, id) {
+      return d.keys().hasAll(['date']) && d.keys().hasOnly(['date']) &&
+        d.date is timestamp && d.date == d.date.date() &&
+        d.date.year() >= 2000 && d.date.year() <= 2100 &&
+        id == string(d.date.year()) + '-' + string(d.date.month()) + '-' + string(d.date.day());
+    }
+    function validExpense(d) {
+      return d.keys().hasAll(['name', 'amountCents']) &&
+        d.keys().hasOnly(['name', 'amountCents']) && text(d.name, 1, 100) &&
+        d.name.matches('.*[^ ].*') && d.amountCents is int &&
+        d.amountCents >= 1 && d.amountCents <= 1000000;
+    }
+    match /shops/main/saleDays/{day} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && validSaleDay(request.resource.data, day);
+      allow update: if isAuthenticated() && validSaleDay(request.resource.data, day) &&
+        request.resource.data.date == resource.data.date;
+      match /expenses/{id} {
+        function hasSaleDay() {
+          return exists(/databases/$(database)/documents/shops/main/saleDays/$(day));
+        }
+        allow read, delete: if isAuthenticated() && hasSaleDay();
+        allow create, update: if isAuthenticated() && hasSaleDay() && validExpense(request.resource.data);
+      }
     }
     match /shops/main/menu/{id} {
       allow read: if isAuthenticated();

@@ -6,7 +6,7 @@ Flutter order manager styled after the supplied Burger Pedidos reference. Spanis
 
 - `lib/features/*/domain`: framework-independent entities, repository interfaces, and use cases.
 - `lib/features/auth/data`: Firebase / Google authentication adapter.
-- `lib/features/orders/data`, `lib/features/catalog/data`: Firestore adapters.
+- `lib/features/orders/data`, `lib/features/catalog/data`, `lib/features/analytics/data`: Firestore adapters.
 - `lib/features/*/presentation`: screens, form state, loading/errors, and button actions.
 - `lib/core`: dependency injection, theme, and shared widgets.
 - `lib/l10n`: Spanish/English UI strings, localized USD formatting and dates.
@@ -54,7 +54,7 @@ See [Firebase configuration instructions](firebase_config/README.md).
    The root rules currently deny all other collections, matching the previous expired/default-deny rules. Review before deployment if this existing Firebase project also serves another app. Index construction can take several minutes.
 5. Run `flutter pub get` and `flutter run`. After login, open Settings and add products, prices, and optional ingredients. No sample customer data is inserted into production.
 
-The access rules are deployed to the configured Firebase project after emulator validation. The client does not provision Authentication settings.
+Deploy the current access rules to the configured Firebase project after emulator validation. The client does not provision Authentication settings.
 
 ### iOS
 
@@ -63,6 +63,17 @@ There is no iOS app registered in the Firebase project yet. Register the Runner 
 Orders support an optional delivery clock time, defaulting to “As soon as possible.”
 The time is stored as local minutes since midnight (no date or timezone conversion).
 Deploy the updated `firestore.rules` before using this field against Firebase.
+
+## Sale-day analytics
+
+Add a sale day manually using the calendar button in Analytics, then select saved dates from the header dropdown. Saving the same date again reuses the existing day. Dates without delivered orders show zero sales and orders.
+
+Cards show Gastos, total sales, delivered order count (not item quantity), and profit (sales minus expenses). Sales use the device-local delivery date. Reopening or deleting a delivered order updates its day's totals. Tap Gastos to add named expenses or delete them; amounts accept decimal points or commas and are stored as integer USD cents. Expenses are shared with the team and belong only to their selected day.
+
+- `shops/main/saleDays/{year-month-day}` stores an immutable `date` timestamp at UTC midnight, encoding a calendar date without timezone shifts. Dates range from 2000 through 2100.
+- `shops/main/saleDays/{day}/expenses/{id}` stores only `name` (1–100 characters) and `amountCents` (1–1,000,000). Stable document IDs make expense-save retries idempotent.
+- Sale days and expenses stream from Firestore. Totals are calculated from orders and expenses, so there are no stored counters to synchronize.
+- Deploy the updated `firestore.rules` before using sale days in production. This refactor's rules were validated locally; deployment requires valid Firebase credentials.
 
 ## Data and limits
 

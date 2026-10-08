@@ -12,6 +12,7 @@ void main() {
     await tester.pumpWidget(
       OrdersApp(
         services: AppServices(
+          analytics: FakeAnalytics(),
           auth: FakeAuth(),
           orders: FakeOrders(),
           catalog: FakeCatalog(),
@@ -34,6 +35,7 @@ void main() {
       await tester.pumpWidget(
         OrdersApp(
           services: AppServices(
+            analytics: FakeAnalytics(),
             auth: FakeAuth(user: const AppUser('alice', 'Ana')),
             orders: orders,
             catalog: FakeCatalog(),
@@ -87,6 +89,7 @@ void main() {
     await tester.pumpWidget(
       OrdersApp(
         services: AppServices(
+          analytics: FakeAnalytics(),
           auth: FakeAuth(user: const AppUser('alice', 'Ana')),
           orders: orders,
           catalog: FakeCatalog(),
@@ -141,6 +144,7 @@ void main() {
     await tester.pumpWidget(
       OrdersApp(
         services: AppServices(
+          analytics: FakeAnalytics(),
           auth: FakeAuth(user: const AppUser('alice', 'Ana')),
           orders: FakeOrders(),
           catalog: catalog,
@@ -210,6 +214,7 @@ void main() {
     await tester.pumpWidget(
       OrdersApp(
         services: AppServices(
+          analytics: FakeAnalytics(),
           auth: FakeAuth(user: const AppUser('bob', 'Bob')),
           orders: orders,
           catalog: catalog,

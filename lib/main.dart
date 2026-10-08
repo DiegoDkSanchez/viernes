@@ -1,3 +1,4 @@
+import 'features/analytics/data/firestore_analytics_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -16,6 +17,7 @@ Future<void> main() async {
     runApp(
       OrdersApp(
         services: AppServices(
+          analytics: FirestoreAnalyticsRepository(FirebaseFirestore.instance),
           auth: FirebaseAuthRepository(FirebaseAuth.instance),
           orders: FirestoreOrderRepository(FirebaseFirestore.instance),
           catalog: FirestoreCatalogRepository(FirebaseFirestore.instance),

@@ -1,3 +1,4 @@
+import 'package:viernes/features/analytics/domain/sale_day.dart';
 import 'dart:async';
 import 'package:viernes/features/auth/domain/auth_repository.dart';
 import 'package:viernes/features/catalog/domain/catalog.dart';
@@ -87,6 +88,53 @@ class FakeOrders implements OrderRepository {
       creator: old.creator,
       status: status,
     );
+    changes.add(null);
+  }
+}
+
+class FakeAnalytics implements AnalyticsRepository {
+  final days = <DateTime>[];
+  final expenses = <String, List<Expense>>{};
+  final changes = StreamController<void>.broadcast();
+  int nextId = 0;
+  @override
+  Stream<List<DateTime>> watchDays() async* {
+    List<DateTime> current() => [...days]..sort((a, b) => b.compareTo(a));
+    yield current();
+    await for (final _ in changes.stream) {
+      yield current();
+    }
+  }
+
+  @override
+  Future<void> addDay(DateTime date) async {
+    date = calendarDate(date);
+    if (!days.contains(date)) days.add(date);
+    changes.add(null);
+  }
+
+  @override
+  Stream<List<Expense>> watchExpenses(DateTime date) async* {
+    yield [...?expenses[saleDayId(date)]];
+    await for (final _ in changes.stream) {
+      yield [...?expenses[saleDayId(date)]];
+    }
+  }
+
+  @override
+  String newExpenseId(DateTime date) => '${nextId++}';
+  @override
+  Future<void> saveExpense(DateTime date, Expense expense) async {
+    validateExpense(expense);
+    final items = expenses.putIfAbsent(saleDayId(date), () => []);
+    items.removeWhere((e) => e.id == expense.id);
+    items.add(expense);
+    changes.add(null);
+  }
+
+  @override
+  Future<void> deleteExpense(DateTime date, String id) async {
+    expenses[saleDayId(date)]?.removeWhere((e) => e.id == id);
     changes.add(null);
   }
 }

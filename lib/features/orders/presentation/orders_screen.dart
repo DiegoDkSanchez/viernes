@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import '../../analytics/domain/sale_day.dart';
 import '../../../core/app_services.dart';
 import '../../../core/theme.dart';
 import '../../../core/widgets.dart';
@@ -26,6 +28,8 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen> {
   int index = 0;
   late Stream<List<CustomerOrder>> stream;
+  late Stream<List<DateTime>> saleDays;
+  DateTime? deliveredDay;
   @override
   void initState() {
     super.initState();
@@ -33,6 +37,9 @@ class _OrdersScreenState extends State<OrdersScreen> {
   }
 
   void reload() {
+    if (index == 1) {
+      saleDays = widget.services.analytics.watchDays();
+    }
     stream = widget.services.watchOrders(
       index == 0 ? OrderStatus.pending : OrderStatus.delivered,
     );
@@ -73,8 +80,22 @@ class _OrdersScreenState extends State<OrdersScreen> {
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
-            final orders = snapshot.data!;
-            if (index == 2) return AnalyticsView(orders: orders);
+            final orders = index == 1 && deliveredDay != null
+                ? snapshot.data!
+                      .where(
+                        (order) =>
+                            order.deliveredAt != null &&
+                            calendarDate(order.deliveredAt!.toLocal()) ==
+                                deliveredDay,
+                      )
+                      .toList()
+                : snapshot.data!;
+            if (index == 2) {
+              return AnalyticsView(
+                orders: orders,
+                repository: widget.services.analytics,
+              );
+            }
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -87,6 +108,75 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         s.t(index == 0 ? 'pendingTitle' : 'deliveredTitle'),
                         style: Theme.of(context).textTheme.headlineMedium,
                       ),
+                      if (index == 1) ...[
+                        const SizedBox(height: 12),
+                        StreamBuilder<List<DateTime>>(
+                          stream: saleDays,
+                          builder: (context, daysSnapshot) {
+                            if (daysSnapshot.hasError) {
+                              return Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(s.t('saleDayFilterError')),
+                                  ),
+                                  IconButton(
+                                    tooltip: s.t('retry'),
+                                    icon: const Icon(Icons.refresh),
+                                    onPressed: () => setState(() {
+                                      saleDays = widget.services.analytics
+                                          .watchDays();
+                                    }),
+                                  ),
+                                ],
+                              );
+                            }
+                            final days = {
+                              ...?daysSnapshot.data,
+                              ?deliveredDay,
+                            }.toList()..sort((a, b) => b.compareTo(a));
+                            return InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: s.t('saleDay'),
+                                prefixIcon: const Icon(
+                                  Icons.calendar_today_outlined,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<DateTime>(
+                                  key: const ValueKey('deliveredDayFilter'),
+                                  isExpanded: true,
+                                  value: deliveredDay,
+                                  hint: Text(s.t('allDates')),
+                                  items: [
+                                    DropdownMenuItem<DateTime>(
+                                      value: null,
+                                      child: Text(s.t('allDates')),
+                                    ),
+                                    for (final day in days)
+                                      DropdownMenuItem(
+                                        value: day,
+                                        child: Text(
+                                          DateFormat.yMMMd(
+                                            s.locale.toLanguageTag(),
+                                          ).format(day),
+                                        ),
+                                      ),
+                                  ],
+                                  onChanged: daysSnapshot.hasData
+                                      ? (day) =>
+                                            setState(() => deliveredDay = day)
+                                      : null,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       const SizedBox(height: 4),
                       Text(
                         '${orders.length} ${s.t(index == 0 ? 'waiting' : 'completed')}',
@@ -97,9 +187,19 @@ class _OrdersScreenState extends State<OrdersScreen> {
                 Expanded(
                   child: orders.isEmpty
                       ? EmptyState(
-                          title: s.t(index == 0 ? 'emptyPending' : 'emptyDone'),
+                          title: s.t(
+                            index == 0
+                                ? 'emptyPending'
+                                : deliveredDay != null
+                                ? 'emptyDeliveredDay'
+                                : 'emptyDone',
+                          ),
                           subtitle: s.t(
-                            index == 0 ? 'emptyPendingHint' : 'emptyDoneHint',
+                            index == 0
+                                ? 'emptyPendingHint'
+                                : deliveredDay != null
+                                ? 'emptyDeliveredDayHint'
+                                : 'emptyDoneHint',
                           ),
                         )
                       : ListView.builder(
@@ -297,8 +397,11 @@ class _OrderCardState extends State<OrderCard> {
                       for (final line in o.lines) ...[
                         Row(
                           children: [
-                            Text('${line.quantity}', style: TextStyle(fontSize: 30),),
-                            Text('× ${line.name}'),
+                            Text(
+                              '${line.quantity}',
+                              style: TextStyle(fontSize: 30),
+                            ),
+                            Expanded(child: Text('× ${line.name}')),
                           ],
                         ),
                         if (line.options.isNotEmpty)

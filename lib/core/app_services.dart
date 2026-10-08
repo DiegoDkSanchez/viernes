@@ -1,3 +1,4 @@
+import '../features/analytics/domain/sale_day.dart';
 import '../features/auth/domain/auth_repository.dart';
 import '../features/catalog/domain/catalog.dart';
 import '../features/orders/domain/orders.dart';
@@ -7,7 +8,9 @@ class AppServices {
     required this.auth,
     required this.orders,
     required this.catalog,
+    required this.analytics,
   });
+  final AnalyticsRepository analytics;
   final AuthRepository auth;
   final OrderRepository orders;
   final CatalogRepository catalog;
